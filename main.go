@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,10 +22,11 @@ type Segment struct {
 
 // slot holds a deferred segment builder with its target line for declarative layout.
 type slot struct {
-	line  int                       // which output line (1, 2, ...)
-	width int                       // plain-text width for collapse calc
-	build func(active bool) Segment // lazy builder
-	noSep bool                      // skip separator before this slot
+	line          int                       // which output line (1, 2, ...)
+	width         int                       // plain-text width for collapse calc
+	build         func(active bool) Segment // lazy builder
+	noSep         bool                      // skip separator before this slot
+	styleOverride string                    // pre-parsed ANSI from per-token style config
 }
 
 // ─── Segment Builders ──────────────────────────────────────────────────────
@@ -40,7 +42,7 @@ func dirSegment(dirName string, active bool) Segment {
 	}
 }
 
-func gitSegment(git *gitutil.StatusResult, active bool) Segment {
+func gitSegment(git *gitutil.StatusResult, active bool, maxLen int) Segment {
 	fg := pal.muted
 	if active {
 		fg = pal.active
@@ -57,8 +59,19 @@ func gitSegment(git *gitutil.StatusResult, active bool) Segment {
 	if active {
 		branchTextFg = pal.active
 	}
+	branch := strings.ToLower(git.Branch)
+	if maxLen > 0 {
+		runes := []rune(branch)
+		if len(runes) > maxLen {
+			if maxLen > 3 {
+				branch = string(runes[:maxLen-3]) + "..."
+			} else {
+				branch = string(runes[:maxLen])
+			}
+		}
+	}
 	return Segment{
-		Content: branchColor + symBranch + " " + branchTextFg + strings.ToLower(git.Branch),
+		Content: branchColor + symBranch + " " + branchTextFg + branch,
 		FgAnsi:  fg,
 	}
 }
@@ -101,7 +114,7 @@ func modelSegment(modelName string, active bool) Segment {
 	}
 }
 
-func contextSegment(ctx *ContextWindowData, maxOutputTokens int, active bool) (*Segment, ContextHealth) {
+func contextSegment(ctx *ContextWindowData, maxOutputTokens int, active bool, ctxCfg *ContextConfig) (*Segment, ContextHealth) {
 	if ctx == nil || ctx.ContextWindowSize == nil || *ctx.ContextWindowSize == 0 {
 		return nil, HealthNone
 	}
@@ -113,10 +126,10 @@ func contextSegment(ctx *ContextWindowData, maxOutputTokens int, active bool) (*
 
 	// Clamp to 0–100
 	remainingPct := max(min(rawPct, 100), 0)
-	health := contextHealth(remainingPct)
+	health := contextHealth(remainingPct, ctxCfg)
 
-	isCritical := remainingPct <= contextCriticalPct
-	isWarning := remainingPct <= contextWarningPct
+	isCritical := remainingPct <= ctxCfg.CriticalPct
+	isWarning := remainingPct <= ctxCfg.WarningPct
 
 	color := pal.green
 	if isCritical {
@@ -141,40 +154,6 @@ func contextSegment(ctx *ContextWindowData, maxOutputTokens int, active bool) (*
 		Content: statusText,
 		FgAnsi:  fg,
 	}, health
-}
-
-func promptSegment(prompts []string) *Segment {
-	if len(prompts) == 0 {
-		return nil
-	}
-
-	const (
-		maxPromptsToShow     = 3
-		mostRecentWordCount  = 4
-		olderPromptWordCount = 3
-	)
-
-	var parts []string
-	shown := 0
-	for i := len(prompts) - 1; i >= 0 && shown < maxPromptsToShow; i-- {
-		prompt := prompts[i]
-		icon := getPromptIcon(prompt)
-		wordCount := olderPromptWordCount
-		color := pal.gray
-		style := ansiItalic
-		if shown == 0 {
-			wordCount = mostRecentWordCount
-			color = pal.prompt
-			style = ""
-		}
-		parts = append(parts, color+style+icon+" "+strings.ToLower(truncateWords(prompt, wordCount)))
-		shown++
-	}
-
-	return &Segment{
-		Content: "  " + strings.Join(parts, " "),
-		FgAnsi:  pal.prompt,
-	}
 }
 
 func labelSegment(version string, active bool) Segment {
@@ -216,17 +195,12 @@ func plainLen(s string) int {
 	return n
 }
 
-const separatorPlainWidth = 3 // ` › ` is 3 visible chars
-
 // collapseBreadcrumbs drops slots from the right until the total
 // width fits within termWidth. The first slot is always kept.
-func collapseBreadcrumbs(slots []slot, termWidth int) []slot {
+func collapseBreadcrumbs(slots []slot, termWidth, separatorPlainWidth, dotWidth int) []slot {
 	if len(slots) == 0 {
 		return slots
 	}
-
-	// dot (2 chars: "● ") + segments + separators between them
-	const dotWidth = 2
 
 	totalWidth := func(ss []slot) int {
 		w := dotWidth
@@ -279,7 +253,10 @@ func truncateVisible(s string, maxWidth int) string {
 }
 
 // renderLines groups slots by line, collapses line 1, builds segments, and joins.
-func renderLines(dot string, slots []slot, termWidth int) string {
+func renderLines(dot string, slots []slot, termWidth int, separator string) string {
+	sepPlainWidth := plainLen(separator)
+	dotWidth := plainLen(dot) + 1 // +1 for the trailing space
+
 	// Group slots by line, preserving order within each line.
 	lineMap := map[int][]slot{}
 	var lineNums []int
@@ -298,7 +275,7 @@ func renderLines(dot string, slots []slot, termWidth int) string {
 
 		// Line 1 only: collapse breadcrumbs and prepend dot.
 		if num == 1 {
-			group = collapseBreadcrumbs(group, termWidth)
+			group = collapseBreadcrumbs(group, termWidth, sepPlainWidth, dotWidth)
 			lb.WriteString(dot)
 			lb.WriteString(" ")
 		}
@@ -307,11 +284,15 @@ func renderLines(dot string, slots []slot, termWidth int) string {
 		for i, s := range group {
 			active := i == len(group)-1
 			seg := s.build(active)
+			if s.styleOverride != "" {
+				seg.Content = s.styleOverride + stripAnsi(seg.Content)
+				seg.FgAnsi = s.styleOverride
+			}
 			lb.WriteString(seg.FgAnsi)
 			lb.WriteString(seg.Content)
 			if i+1 < len(group) && !group[i+1].noSep {
 				lb.WriteString(pal.separator)
-				lb.WriteString(symSeparator)
+				lb.WriteString(separator)
 			}
 		}
 
@@ -340,11 +321,12 @@ func renderLines(dot string, slots []slot, termWidth int) string {
 func main() {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Print(pal.active + symDot + ansiReset + "\n" + pal.muted + ansiBold + "cc" + ansiReset)
+			fmt.Print(pal.active + "●" + ansiReset + "\n" + pal.muted + ansiBold + "cc" + ansiReset)
 		}
 	}()
 
 	pal = normalPalette()
+	cfg := loadConfig()
 	data := readInput()
 
 	cwd, err := os.Getwd()
@@ -353,11 +335,9 @@ func main() {
 	}
 
 	// Directory name from cwd
-	dirName := "unknown"
-	if parts := strings.Split(cwd, "/"); len(parts) > 0 {
-		if last := parts[len(parts)-1]; last != "" {
-			dirName = last
-		}
+	dirName := filepath.Base(cwd)
+	if dirName == "." || dirName == "/" {
+		dirName = "unknown"
 	}
 
 	// Parse env vars
@@ -372,7 +352,7 @@ func main() {
 	// Select palette based on context window health
 	if data.ContextWindow != nil && data.ContextWindow.ContextWindowSize != nil && *data.ContextWindow.ContextWindowSize > 0 {
 		_, remainingPct := getEffectiveTokens(data.ContextWindow, maxOutputTokens)
-		if remainingPct <= contextAlertPct {
+		if remainingPct <= cfg.Context.AlertPct {
 			pal = alertPalette()
 		}
 	}
@@ -386,7 +366,7 @@ func main() {
 
 	var prompts []string
 	if enablePrompts {
-		prompts = fetchPrompts(data.TranscriptPath)
+		prompts = fetchPromptsWithCache(data.TranscriptPath, cfg.Prompts.CacheTTL)
 	}
 
 	modelName := "claude"
@@ -407,74 +387,131 @@ func main() {
 
 	modelPlain := utf8.RuneCountInString(strings.ToLower(modelName))
 
+	maxBranchLen := 0
+	if tc := cfg.Tokens["git"]; tc != nil {
+		maxBranchLen = tc.MaxLength
+	}
+
 	gitPlain := 0
 	if git != nil {
-		gitPlain = utf8.RuneCountInString(symBranch) + 1 + utf8.RuneCountInString(git.Branch)
-	}
-
-	// Build declarative layout slots
-	// Line 1: dir, prompts
-	slots := []slot{
-		{line: 1, width: dirPlain, build: func(active bool) Segment { return dirSegment(dirName, active) }},
-	}
-
-	// Conditional prompts on line 1
-	if enablePrompts {
-		promptSeg := promptSegment(prompts)
-		if promptSeg != nil {
-			promptPlain := plainLen(promptSeg.Content)
-			captured := *promptSeg
-			slots = append(slots, slot{
-				line: 1, width: promptPlain, noSep: true,
-				build: func(_ bool) Segment { return captured },
-			})
+		branchLen := utf8.RuneCountInString(git.Branch)
+		if maxBranchLen > 0 && branchLen > maxBranchLen {
+			branchLen = maxBranchLen
 		}
+		gitPlain = utf8.RuneCountInString(symBranch) + 1 + branchLen
 	}
 
-	// Context health (needed for dot color)
-	ctxSeg, ctxHealth := contextSegment(data.ContextWindow, maxOutputTokens, false)
+	dcVersion := detectDCVersion()
+	dcPlain := plainLen("dc")
+	if dcVersion != "" {
+		dcPlain = plainLen("dc:" + dcVersion)
+	}
+
+	// Context health (needed for dot color regardless of config)
+	ctxSeg, ctxHealth := contextSegment(data.ContextWindow, maxOutputTokens, false, cfg.Context)
 	health = ctxHealth
 
-	// Line 2: label, model, ctx, project, git
-	labelPlain := plainLen("cc") // 2
+	labelPlain := plainLen("cc")
 	if data.Version != "" {
 		labelPlain = plainLen("cc " + data.Version)
 	}
-	slots = append(slots, slot{
-		line: 2, width: labelPlain,
-		build: func(active bool) Segment { return labelSegment(data.Version, active) },
-	})
 
-	slots = append(slots, slot{
-		line: 2, width: modelPlain,
-		build: func(active bool) Segment { return modelSegment(modelName, active) },
-	})
+	emitSlots := func(token string, line int) []slot {
+		switch token {
+		case "dir":
+			return []slot{{line: line, width: dirPlain,
+				build: func(active bool) Segment { return dirSegment(dirName, active) }}}
 
-	if ctxSeg != nil {
-		ctxPlain := plainLen(ctxSeg.Content)
-		slots = append(slots, slot{
-			line: 2, width: ctxPlain,
-			build: func(active bool) Segment {
-				seg, _ := contextSegment(data.ContextWindow, maxOutputTokens, active)
-				return *seg
-			},
-		})
+		case "prompts":
+			if !enablePrompts || len(prompts) == 0 {
+				return nil
+			}
+			var out []slot
+			shown := 0
+			for i := len(prompts) - 1; i >= 0 && shown < cfg.Prompts.Max; i-- {
+				prompt := prompts[i]
+				icon := getPromptIcon(prompt)
+				wordCount := cfg.Prompts.OlderWords
+				color := pal.gray
+				style := ansiItalic
+				prefix := " "
+				if shown == 0 {
+					wordCount = cfg.Prompts.NewestWords
+					color = pal.prompt
+					style = ""
+					prefix = "  "
+				}
+				content := prefix + color + style + icon + " " + strings.ToLower(truncateWords(prompt, wordCount))
+				seg := Segment{Content: content, FgAnsi: pal.prompt}
+				captured := seg
+				out = append(out, slot{
+					line: line, width: plainLen(content), noSep: true,
+					build: func(_ bool) Segment { return captured },
+				})
+				shown++
+			}
+			return out
+
+		case "label":
+			return []slot{{line: line, width: labelPlain,
+				build: func(active bool) Segment { return labelSegment(data.Version, active) }}}
+
+		case "model":
+			return []slot{{line: line, width: modelPlain,
+				build: func(active bool) Segment { return modelSegment(modelName, active) }}}
+
+		case "ctx":
+			if ctxSeg == nil {
+				return nil
+			}
+			ctxPlain := plainLen(ctxSeg.Content)
+			return []slot{{line: line, width: ctxPlain,
+				build: func(active bool) Segment {
+					seg, _ := contextSegment(data.ContextWindow, maxOutputTokens, active, cfg.Context)
+					return *seg
+				}}}
+
+		case "project":
+			return []slot{{line: line, width: projectPlain,
+				build: func(active bool) Segment { return projectSegment(project, active) }}}
+
+		case "git":
+			if git == nil {
+				return nil
+			}
+			return []slot{{line: line, width: gitPlain,
+				build: func(active bool) Segment { return gitSegment(git, active, maxBranchLen) }}}
+
+		case "dc":
+			if dcVersion == "" {
+				return nil
+			}
+			return []slot{{line: line, width: dcPlain,
+				build: func(active bool) Segment { return dcSegment(dcVersion, active) }}}
+		}
+		return nil
 	}
 
-	slots = append(slots, slot{
-		line: 2, width: projectPlain,
-		build: func(active bool) Segment { return projectSegment(project, active) },
-	})
-
-	if git != nil {
-		slots = append(slots, slot{
-			line: 2, width: gitPlain,
-			build: func(active bool) Segment { return gitSegment(git, active) },
-		})
+	var slots []slot
+	appendTokenSlots := func(token string, line int) {
+		ss := emitSlots(token, line)
+		if tc := cfg.Tokens[token]; tc != nil && tc.Style != "" {
+			override := parseStyle(tc.Style)
+			for i := range ss {
+				ss[i].styleOverride = override
+			}
+		}
+		slots = append(slots, ss...)
+	}
+	for _, token := range parseTokens(cfg.Line1) {
+		appendTokenSlots(token, 1)
+	}
+	for _, token := range parseTokens(cfg.Line2) {
+		appendTokenSlots(token, 2)
 	}
 
 	// Render all lines
 	termWidth := getTerminalWidth()
-	dot := dotColor(health) + symDot + ansiReset
-	fmt.Print(renderLines(dot, slots, termWidth))
+	dot := dotColor(health) + cfg.Dot + ansiReset
+	fmt.Print(renderLines(dot, slots, termWidth, cfg.Separator))
 }
