@@ -275,7 +275,7 @@ func renderLines(dot string, slots []slot, termWidth int, separator string) stri
 
 		// Line 1 only: collapse breadcrumbs and prepend dot.
 		if num == 1 {
-			group = collapseBreadcrumbs(group, termWidth, sepPlainWidth, dotWidth)
+			group = collapseBreadcrumbs(group, termWidth-1, sepPlainWidth, dotWidth)
 			lb.WriteString(dot)
 			lb.WriteString(" ")
 		}
@@ -296,16 +296,23 @@ func renderLines(dot string, slots []slot, termWidth int, separator string) stri
 			}
 		}
 
-		line := lb.String()
-		// Safety: truncate any line that would wrap the terminal
-		if plainLen(line) > termWidth {
-			line = truncateVisible(line, termWidth)
-		}
-		lines = append(lines, line)
+		lines = append(lines, lb.String())
 	}
 
 	var b strings.Builder
 	for i, line := range lines {
+		isLast := i+1 == len(lines)
+		// Non-last lines must stay below termWidth: when the cursor lands
+		// in column termWidth the terminal's automatic-margin wraps it,
+		// and the subsequent \n then consumes an extra row, pushing line 2
+		// off the status area.  The last line needs no such reservation.
+		limit := termWidth
+		if !isLast {
+			limit = termWidth - 1
+		}
+		if plainLen(line) > limit {
+			line = truncateVisible(line, limit)
+		}
 		b.WriteString(line)
 		if i+1 < len(lines) {
 			b.WriteString(ansiReset)
