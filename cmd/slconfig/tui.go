@@ -69,6 +69,9 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(clrMuted).
 			MarginTop(1)
+
+	hintStyle = lipgloss.NewStyle().
+			Foreground(clrMuted)
 )
 
 // ─── Sections ─────────────────────────────────────────────────────────────
@@ -95,6 +98,15 @@ type fieldDef struct {
 }
 
 var knownTokens = []string{"dir", "git", "project", "model", "ctx", "label", "dc", "prompts"}
+
+// knownTokensHint is derived from knownTokens so the two stay in sync.
+var knownTokensHint = func() string {
+	parts := make([]string, len(knownTokens))
+	for i, t := range knownTokens {
+		parts[i] = "[" + t + "]"
+	}
+	return "available: " + strings.Join(parts, " ")
+}()
 
 func fieldsForSection(sec section) []fieldDef {
 	switch sec {
@@ -327,6 +339,11 @@ func (m model) View() string {
 	}
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, tabs...))
 	b.WriteString("\n\n")
+
+	// Available tokens hint (Layout section only)
+	if m.section == secLayout {
+		b.WriteString("  " + hintStyle.Render(knownTokensHint) + "\n\n")
+	}
 
 	// Fields
 	fields := fieldsForSection(m.section)
