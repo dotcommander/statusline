@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // ─── Prompts ───────────────────────────────────────────────────────────────
@@ -61,6 +64,39 @@ func fetchPrompts(transcriptPath string) []string {
 		}
 	}
 
+	return prompts
+}
+
+type promptCache struct {
+	Prompts []string `json:"prompts"`
+}
+
+// fetchPromptsWithCache wraps fetchPrompts with a file-based TTL cache.
+// If ttl <= 0, caching is disabled and fetchPrompts is called directly.
+func fetchPromptsWithCache(transcriptPath string, ttl int) []string {
+	if ttl <= 0 || transcriptPath == "" {
+		return fetchPrompts(transcriptPath)
+	}
+
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(transcriptPath))
+	cachePath := fmt.Sprintf("/tmp/statusline-prompts-%x.json", h.Sum32())
+
+	if info, err := os.Stat(cachePath); err == nil {
+		if time.Since(info.ModTime()) < time.Duration(ttl)*time.Second {
+			if data, err := os.ReadFile(cachePath); err == nil {
+				var cached promptCache
+				if json.Unmarshal(data, &cached) == nil {
+					return cached.Prompts
+				}
+			}
+		}
+	}
+
+	prompts := fetchPrompts(transcriptPath)
+	if data, err := json.Marshal(promptCache{Prompts: prompts}); err == nil {
+		_ = os.WriteFile(cachePath, data, 0644)
+	}
 	return prompts
 }
 
