@@ -5,17 +5,7 @@ import "fmt"
 // ─── Symbols ───────────────────────────────────────────────────────────────
 
 const (
-	symSeparator = " \u203a " // ` › ` breadcrumb separator
-	symDot       = "\u25cf"   // ● mode dot
-	symBranch    = "\ue0a0"
-)
-
-// ─── Config ────────────────────────────────────────────────────────────────
-
-const (
-	contextWarningPct  = 25
-	contextCriticalPct = 10
-	contextAlertPct    = 30
+	symBranch = "\ue0a0"
 )
 
 // ─── ANSI codes ────────────────────────────────────────────────────────────

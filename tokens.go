@@ -64,11 +64,11 @@ func getEffectiveTokens(ctx *ContextWindowData, maxOutputTokens int) (used, rema
 }
 
 // contextHealth determines health level from remaining percentage.
-func contextHealth(remainingPct int) ContextHealth {
+func contextHealth(remainingPct int, cfg *ContextConfig) ContextHealth {
 	switch {
-	case remainingPct > contextWarningPct:
+	case remainingPct > cfg.WarningPct:
 		return HealthGreen
-	case remainingPct > contextCriticalPct:
+	case remainingPct > cfg.CriticalPct:
 		return HealthYellow
 	default:
 		return HealthRed
