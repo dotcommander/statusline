@@ -232,7 +232,7 @@ func collapseBreadcrumbs(slots []slot, termWidth int) []slot {
 		w := dotWidth
 		for i, s := range ss {
 			w += s.width
-			if i > 0 {
+			if i > 0 && !s.noSep {
 				w += separatorPlainWidth
 			}
 		}
@@ -248,6 +248,36 @@ func collapseBreadcrumbs(slots []slot, termWidth int) []slot {
 
 // ─── Renderer ──────────────────────────────────────────────────────────────
 
+// truncateVisible truncates s so its visible width (excluding ANSI escapes)
+// does not exceed maxWidth. Preserves ANSI codes that precede kept characters.
+func truncateVisible(s string, maxWidth int) string {
+	var b strings.Builder
+	visible := 0
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			// Copy the entire escape sequence unconditionally.
+			j := i + 1
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			if j < len(s) {
+				j++ // include 'm'
+			}
+			b.WriteString(s[i:j])
+			i = j
+			continue
+		}
+		if visible >= maxWidth {
+			break
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		b.WriteString(s[i : i+size])
+		visible++
+		i += size
+	}
+	return b.String()
+}
+
 // renderLines groups slots by line, collapses line 1, builds segments, and joins.
 func renderLines(dot string, slots []slot, termWidth int) string {
 	// Group slots by line, preserving order within each line.
@@ -260,35 +290,47 @@ func renderLines(dot string, slots []slot, termWidth int) string {
 		lineMap[s.line] = append(lineMap[s.line], s)
 	}
 
-	var b strings.Builder
-	for li, num := range lineNums {
+	var lines []string
+	for _, num := range lineNums {
 		group := lineMap[num]
+
+		var lb strings.Builder
 
 		// Line 1 only: collapse breadcrumbs and prepend dot.
 		if num == 1 {
 			group = collapseBreadcrumbs(group, termWidth)
-			b.WriteString(dot)
-			b.WriteString(" ")
+			lb.WriteString(dot)
+			lb.WriteString(" ")
 		}
 
 		// Build segments — last in line gets active=true.
 		for i, s := range group {
 			active := i == len(group)-1
 			seg := s.build(active)
-			b.WriteString(seg.FgAnsi)
-			b.WriteString(seg.Content)
+			lb.WriteString(seg.FgAnsi)
+			lb.WriteString(seg.Content)
 			if i+1 < len(group) && !group[i+1].noSep {
-				b.WriteString(pal.separator)
-				b.WriteString(symSeparator)
+				lb.WriteString(pal.separator)
+				lb.WriteString(symSeparator)
 			}
 		}
 
-		if li+1 < len(lineNums) {
+		line := lb.String()
+		// Safety: truncate any line that would wrap the terminal
+		if plainLen(line) > termWidth {
+			line = truncateVisible(line, termWidth)
+		}
+		lines = append(lines, line)
+	}
+
+	var b strings.Builder
+	for i, line := range lines {
+		b.WriteString(line)
+		if i+1 < len(lines) {
 			b.WriteString(ansiReset)
 			b.WriteString("\n")
 		}
 	}
-
 	b.WriteString(ansiReset)
 	return b.String()
 }
