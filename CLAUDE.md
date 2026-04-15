@@ -11,6 +11,7 @@ Two-line ANSI status bar renderer for Claude Code. Receives JSON on stdin (sessi
 ```bash
 go build .                        # statusline binary
 go build ./cmd/slconfig           # slconfig TUI editor
+go build ./cmd/setup              # setup command binary
 go test ./...                     # all tests (3 packages)
 go test -run TestPlainLen .       # single test
 go test -v -race -count=1 ./...  # verbose with race detector
@@ -63,6 +64,19 @@ Key env vars:
 
 `cmd/slconfig/` — bubbletea app with 5 tabs (Layout, Appearance, Prompts, Context, Tokens). Reads and writes the same config.yaml. Entry in `main.go`, all UI in `tui.go`.
 
-## Workspace CLAUDE.md
+## Setup Command
 
-This repo inherits rules from the parent Go workspace `CLAUDE.md` at `/Users/vampire/go/src/CLAUDE.md` — library choices (cobra, viper, bubbletea, testify), code style limits (80-line functions, 4-level nesting), config-not-code policy, and testing requirements (t.Parallel on all tests).
+`cmd/setup/` — configures Claude Code's settings.json to use the statusline binary.
+Detects/builds the binary, writes the `statusLine` entry, idempotent.
+
+```bash
+go run ./cmd/setup              # configure global settings
+go run ./cmd/setup --local      # configure project-local settings
+go build -o statusline-setup ./cmd/setup && ln -sf "$(pwd)/statusline-setup" ~/go/bin/statusline-setup
+```
+
+## Conventions
+
+- Library choices: cobra + viper (CLI), bubbletea + lipgloss (TUI), testify (tests)
+- Code style: 80-line function max, 4-level nesting max, config-not-code policy
+- Testing: `t.Parallel()` on all tests, table-driven for multiple cases
