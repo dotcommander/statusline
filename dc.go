@@ -11,6 +11,7 @@ import (
 
 // detectDCVersion reads the Claude Code installed_plugins.json and returns
 // the dc@dotcommander plugin version, or "" if not installed.
+// The [dc] token is hidden when dotcommander is not installed — this is optional.
 func detectDCVersion() string {
 	home, err := os.UserHomeDir()
 	if err != nil {

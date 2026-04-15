@@ -92,8 +92,8 @@ func projectSegment(project ProjectInfo, active bool) Segment {
 }
 
 var (
-	anthropicRe = regexp.MustCompile(`(?i)claude|opus|sonnet|haiku`)
-	opusRe      = regexp.MustCompile(`(?i)opus`)
+	claudeModelRe = regexp.MustCompile(`(?i)claude|opus|sonnet|haiku`)
+	opusRe        = regexp.MustCompile(`(?i)opus`)
 )
 
 func modelSegment(modelName string, active bool) Segment {
@@ -102,7 +102,7 @@ func modelSegment(modelName string, active bool) Segment {
 		fg = pal.active
 	}
 	nameColor := fg
-	if anthropicRe.MatchString(modelName) {
+	if claudeModelRe.MatchString(modelName) {
 		nameColor = pal.orange
 		if opusRe.MatchString(modelName) {
 			nameColor = pal.paleOrange
