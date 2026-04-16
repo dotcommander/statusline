@@ -10,7 +10,9 @@ import (
 // ─── Input Reading ─────────────────────────────────────────────────────────
 
 // readInput reads JSON from stdin. Returns zero value if stdin is a terminal
-// or on any error.
+// or on any error. If STATUSLINE_DEBUG_INPUT is set, the raw stdin bytes are
+// also written to that path for diagnostics. Any tee error is swallowed —
+// the statusline must never fail because of an instrumentation problem.
 func readInput() InputData {
 	fi, err := os.Stdin.Stat()
 	if err != nil {
@@ -24,6 +26,10 @@ func readInput() InputData {
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return InputData{}
+	}
+
+	if path := os.Getenv("STATUSLINE_DEBUG_INPUT"); path != "" {
+		_ = os.WriteFile(path, data, 0o644)
 	}
 
 	trimmed := bytes.TrimSpace(data)

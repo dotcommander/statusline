@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/dotcommander/statusline/internal/gitutil"
+	"github.com/mattn/go-runewidth"
 )
 
 // ─── Segment ───────────────────────────────────────────────────────────────
@@ -171,7 +172,9 @@ func labelSegment(version string, active bool) Segment {
 
 // ─── Collapse ──────────────────────────────────────────────────────────────
 
-// plainLen returns the visible character count of a string (excluding ANSI escapes).
+// plainLen returns the visible cell width of a string (excluding ANSI escapes).
+// Uses go-runewidth so CJK and East Asian Ambiguous glyphs (●, ›, ⎇) are
+// counted as the cells they actually occupy in the terminal.
 func plainLen(s string) int {
 	n := 0
 	inEsc := false
@@ -188,8 +191,8 @@ func plainLen(s string) int {
 			i++
 			continue
 		}
-		_, size := utf8.DecodeRuneInString(s[i:])
-		n++
+		r, size := utf8.DecodeRuneInString(s[i:])
+		n += runewidth.RuneWidth(r)
 		i += size
 	}
 	return n
@@ -222,8 +225,9 @@ func collapseBreadcrumbs(slots []slot, termWidth, separatorPlainWidth, dotWidth 
 
 // ─── Renderer ──────────────────────────────────────────────────────────────
 
-// truncateVisible truncates s so its visible width (excluding ANSI escapes)
+// truncateVisible truncates s so its visible cell width (excluding ANSI escapes)
 // does not exceed maxWidth. Preserves ANSI codes that precede kept characters.
+// A wide rune that would overflow is dropped entirely — no half-glyph output.
 func truncateVisible(s string, maxWidth int) string {
 	var b strings.Builder
 	visible := 0
@@ -241,12 +245,13 @@ func truncateVisible(s string, maxWidth int) string {
 			i = j
 			continue
 		}
-		if visible >= maxWidth {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		w := runewidth.RuneWidth(r)
+		if visible+w > maxWidth {
 			break
 		}
-		_, size := utf8.DecodeRuneInString(s[i:])
 		b.WriteString(s[i : i+size])
-		visible++
+		visible += w
 		i += size
 	}
 	return b.String()
@@ -308,7 +313,10 @@ func renderLines(dot string, slots []slot, termWidth int, separator string) stri
 		// off the status area.  The last line needs no such reservation.
 		limit := termWidth
 		if !isLast {
-			limit = termWidth - 1
+			// Reserve 2 cells: one for the auto-margin column the terminal
+			// refuses to print into without wrapping, plus one for residual
+			// width-miscount slack (terminal-emulator ambiguous-width quirks).
+			limit = termWidth - 2
 		}
 		if plainLen(line) > limit {
 			line = truncateVisible(line, limit)
@@ -385,14 +393,14 @@ func main() {
 	var health ContextHealth = HealthNone
 
 	// Build plain widths for collapse calculation
-	dirPlain := utf8.RuneCountInString(strings.ToLower(dirName))
+	dirPlain := plainLen(strings.ToLower(dirName))
 
-	projectPlain := utf8.RuneCountInString(strings.ToLower(project.Badge))
+	projectPlain := plainLen(strings.ToLower(project.Badge))
 	if project.Version != "" {
 		projectPlain += 1 + utf8.RuneCountInString(project.Version)
 	}
 
-	modelPlain := utf8.RuneCountInString(strings.ToLower(modelName))
+	modelPlain := plainLen(strings.ToLower(modelName))
 
 	maxBranchLen := 0
 	if tc := cfg.Tokens["git"]; tc != nil {
@@ -405,7 +413,7 @@ func main() {
 		if maxBranchLen > 0 && branchLen > maxBranchLen {
 			branchLen = maxBranchLen
 		}
-		gitPlain = utf8.RuneCountInString(symBranch) + 1 + branchLen
+		gitPlain = plainLen(symBranch) + 1 + branchLen
 	}
 
 	dcVersion := detectDCVersion()

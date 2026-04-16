@@ -10,6 +10,7 @@ func init() {
 }
 
 func TestProgressivePromptCollapse(t *testing.T) {
+	t.Parallel()
 	dot := pal.green + defaultConfig.Dot + ansiReset
 	sep := defaultConfig.Separator
 
@@ -154,6 +155,7 @@ func TestProgressivePromptCollapse(t *testing.T) {
 }
 
 func TestPlainLen(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  int
@@ -169,5 +171,54 @@ func TestPlainLen(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("plainLen(%q) = %d, want %d", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestPlainLenCellWidth(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input string
+		want  int
+	}{
+		{"ascii", "abc", 3},
+		{"ansi-wrapped ascii", "\x1b[31mred\x1b[0m", 3},
+		{"cjk wide chars", "日本", 4},
+		{"cjk plus ascii", "abc日", 5},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := plainLen(tt.input)
+			if got != tt.want {
+				t.Errorf("plainLen(%q) = %d, want %d", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTruncateVisibleCellWidth(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		input    string
+		maxWidth int
+		want     string
+	}{
+		{"cjk truncated to width 4", "日本語", 4, "日本"},
+		{"cjk truncated to width 3 drops wide rune", "日本語", 3, "日"},
+		{"ansi preserved with truncation", "\x1b[31m日本語\x1b[0m", 2, "\x1b[31m日"},
+		{"ascii unchanged when within width", "hello", 10, "hello"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := truncateVisible(tt.input, tt.maxWidth)
+			if got != tt.want {
+				t.Errorf("truncateVisible(%q, %d) = %q, want %q", tt.input, tt.maxWidth, got, tt.want)
+			}
+		})
 	}
 }
