@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"strconv"
+
+	"github.com/dotcommander/statusline/internal/config"
 )
 
 // ─── Token Math and Health ─────────────────────────────────────────────────
@@ -64,7 +66,7 @@ func getEffectiveTokens(ctx *ContextWindowData, maxOutputTokens int) (used, rema
 }
 
 // contextHealth determines health level from remaining percentage.
-func contextHealth(remainingPct int, cfg *ContextConfig) ContextHealth {
+func contextHealth(remainingPct int, cfg *config.ContextConfig) ContextHealth {
 	switch {
 	case remainingPct > cfg.WarningPct:
 		return HealthGreen

@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/dotcommander/statusline/internal/config"
 )
 
 func init() {
@@ -11,8 +13,8 @@ func init() {
 
 func TestProgressivePromptCollapse(t *testing.T) {
 	t.Parallel()
-	dot := pal.green + defaultConfig.Dot + ansiReset
-	sep := defaultConfig.Separator
+	dot := pal.green + config.DefaultConfig.Dot + ansiReset
+	sep := config.DefaultConfig.Separator
 
 	makePromptSlots := func(prompts []string) []slot {
 		var slots []slot
