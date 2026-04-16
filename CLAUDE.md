@@ -4,15 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Two-line ANSI status bar renderer for Claude Code. Receives JSON on stdin (session ID, model, context window stats, transcript path), gathers local state (git, project stack), renders a responsive breadcrumb bar with Tokyo Night theming. Ships two binaries: `statusline` (renderer) and `slconfig` (interactive TUI config editor).
+Two-line ANSI status bar renderer for Claude Code. Receives JSON on stdin (session ID, model, context window stats, transcript path), gathers local state (git, project stack), renders a responsive breadcrumb bar with Tokyo Night theming. Ships one binary: `statusline` with subcommands for config editing and setup. The render hot path bypasses cobra entirely — when called with no args and piped stdin, it goes straight to `Run()`.
 
 ## Build & Test
 
 ```bash
 go build .                        # statusline binary
-go build ./cmd/slconfig           # slconfig TUI editor
-go build ./cmd/setup              # setup command binary
-go test ./...                     # all tests (3 packages)
+go test ./...                     # all tests (multiple packages)
 go test -run TestPlainLen .       # single test
 go test -v -race -count=1 ./...  # verbose with race detector
 go vet ./...                      # static analysis
@@ -22,7 +20,6 @@ Install to PATH:
 
 ```bash
 go build -o statusline . && ln -sf "$(pwd)/statusline" ~/go/bin/statusline
-go build -o slconfig ./cmd/slconfig && ln -sf "$(pwd)/slconfig" ~/go/bin/slconfig
 ```
 
 No Makefile, Taskfile, or linting config exists yet.
@@ -39,7 +36,11 @@ All rendering logic lives in the **root package** (not `internal/`). The pipelin
 6. **prompts.go** — tails transcript JSONL, extracts recent user prompts, classifies with icons, optional file-based cache
 7. **theme.go** — palette definitions (normal + alert mode when context is low), hex→true-color ANSI conversion
 8. **style.go** — parses per-token style overrides ("bold italic #hex")
-9. **main.go** — orchestrates everything: builds deferred `slot` builders per config token, calculates widths, collapses line 1 from right when exceeding terminal width, renders two ANSI lines
+9. **run.go** — `Run()`: hot-path renderer; orchestrates everything: builds deferred `slot` builders per config token, calculates widths, collapses line 1 from right when exceeding terminal width, renders two ANSI lines
+10. **main.go** — thin dispatcher: piped stdin with no args → `Run()`; otherwise → cobra subcommands
+11. **cmd_root.go** — cobra root, `config` subcommand, `setup` subcommand
+12. **internal/configtui/** — bubbletea TUI for interactive config editing (`statusline config`)
+13. **internal/setupcmd/** — settings.json wiring logic (`statusline setup [--local]`)
 
 **types.go** defines `InputData` (stdin schema) and `StatusOutput` (rendered lines).
 
@@ -49,7 +50,7 @@ Layout is configured as token templates: `"[dir] [prompts]"` for line 1, `"[labe
 
 ### Panic Recovery
 
-`main()` defers a panic handler that outputs a minimal fallback status (dot + "cc") so Claude Code never sees a crash.
+`Run()` defers a panic handler that outputs a minimal fallback status (dot + "cc") so Claude Code never sees a crash.
 
 ## Config
 
@@ -60,23 +61,20 @@ Key env vars:
 - `CLAUDE_STATUSLINE_ENABLE_PROMPTS` — set "0" to disable prompt extraction
 - `COLUMNS` — override terminal width detection
 
-## slconfig TUI
-
-`cmd/slconfig/` — bubbletea app with 5 tabs (Layout, Appearance, Prompts, Context, Tokens). Reads and writes the same config.yaml. Entry in `main.go`, all UI in `tui.go`.
-
-## Setup Command
-
-`cmd/setup/` — configures Claude Code's settings.json to use the statusline binary.
-Detects/builds the binary, writes the `statusLine` entry, idempotent.
+## Subcommands
 
 ```bash
-go run ./cmd/setup              # configure global settings
-go run ./cmd/setup --local      # configure project-local settings
-go build -o statusline-setup ./cmd/setup && ln -sf "$(pwd)/statusline-setup" ~/go/bin/statusline-setup
+statusline config               # open interactive TUI config editor (bubbletea, 5 tabs)
+statusline setup                # configure global ~/.claude/settings.json
+statusline setup --local        # configure project-local .claude/settings.json
 ```
+
+`statusline setup` detects the binary in `~/go/bin`, falls back to `PATH`, or builds from source if needed. Idempotent.
+
+`statusline config` opens a full-screen TUI with tabs: Layout, Appearance, Prompts, Context, Tokens. Press `s` to save, `q` to quit.
 
 ## Conventions
 
-- Library choices: cobra + viper (CLI), bubbletea + lipgloss (TUI), testify (tests)
+- Library choices: cobra (CLI), bubbletea + lipgloss (TUI), testify (tests)
 - Code style: 80-line function max, 4-level nesting max, config-not-code policy
 - Testing: `t.Parallel()` on all tests, table-driven for multiple cases

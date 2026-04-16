@@ -1,8 +1,5 @@
 # Binaries
 statusline
-slconfig
-statusline-setup
-/setup
 
 # Test/build artifacts
 *.test

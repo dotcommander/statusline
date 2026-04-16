@@ -13,7 +13,6 @@ Line 1 collapses from the right when the terminal is too narrow. Line 2 stays fi
 
 ```bash
 go install github.com/dotcommander/statusline@latest
-go install github.com/dotcommander/statusline/cmd/slconfig@latest
 ```
 
 Or build from source:
@@ -22,18 +21,15 @@ Or build from source:
 git clone https://github.com/dotcommander/statusline.git
 cd statusline
 go build -o statusline . && ln -sf "$(pwd)/statusline" ~/go/bin/statusline
-go build -o slconfig ./cmd/slconfig && ln -sf "$(pwd)/slconfig" ~/go/bin/slconfig
 ```
-
-`statusline` is the renderer. `slconfig` is the interactive configurator.
 
 ## Setup
 
-The `setup` command configures Claude Code's `settings.json` to use statusline. It detects the binary in `~/go/bin`, falls back to `PATH`, or builds from source if needed.
+The `setup` subcommand configures Claude Code's `settings.json` to use statusline. It detects the binary in `~/go/bin`, falls back to `PATH`, or builds from source if needed.
 
 ```bash
-go run ./cmd/setup              # configure global settings (~/.claude/settings.json)
-go run ./cmd/setup --local      # configure project-local settings (.claude/settings.json)
+statusline setup                # configure global settings (~/.claude/settings.json)
+statusline setup --local        # configure project-local settings (.claude/settings.json)
 ```
 
 Idempotent -- running it again when already configured reports "no changes needed."
@@ -64,7 +60,7 @@ Each piece of information in the status bar is a **token** -- a named placeholde
 
 Config file: `~/.config/statusline/config.yaml` (override with `STATUSLINE_CONFIG`).
 
-Run `slconfig` to edit interactively, or edit the file directly.
+Run `statusline config` to edit interactively, or edit the file directly.
 
 ### Layout
 
@@ -162,12 +158,12 @@ line1: "[dir] [model] [ctx]"
 line2: "[label] [dc] [project] [git]"
 ```
 
-## slconfig
+## statusline config
 
-`slconfig` opens a full-screen TUI for editing your config without touching YAML. Five tabs: **Layout**, **Appearance**, **Prompts**, **Context**, and **Tokens**. Press `s` to save, `q` to quit.
+`statusline config` opens a full-screen TUI for editing your config without touching YAML. Five tabs: **Layout**, **Appearance**, **Prompts**, **Context**, and **Tokens**. Press `s` to save, `q` to quit.
 
 ```bash
-slconfig
+statusline config
 ```
 
 ## Environment Variables

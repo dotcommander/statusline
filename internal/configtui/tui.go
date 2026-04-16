@@ -1,4 +1,4 @@
-package main
+package configtui
 
 import (
 	"regexp"
@@ -8,6 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/dotcommander/statusline/internal/config"
 )
 
 // ─── Tokyo Night palette ──────────────────────────────────────────────────
@@ -93,8 +95,8 @@ var sectionNames = []string{"Layout", "Appearance", "Prompts", "Context", "Token
 
 type fieldDef struct {
 	label string
-	get   func(Config) string
-	set   func(*Config, string)
+	get   func(config.Config) string
+	set   func(*config.Config, string)
 }
 
 var knownTokens = []string{"dir", "git", "project", "model", "ctx", "label", "dc", "prompts"}
@@ -112,26 +114,26 @@ func fieldsForSection(sec section) []fieldDef {
 	switch sec {
 	case secLayout:
 		return []fieldDef{
-			{"Line 1", func(c Config) string { return c.Line1 }, func(c *Config, v string) { c.Line1 = v }},
-			{"Line 2", func(c Config) string { return c.Line2 }, func(c *Config, v string) { c.Line2 = v }},
+			{"Line 1", func(c config.Config) string { return c.Line1 }, func(c *config.Config, v string) { c.Line1 = v }},
+			{"Line 2", func(c config.Config) string { return c.Line2 }, func(c *config.Config, v string) { c.Line2 = v }},
 		}
 	case secAppearance:
 		return []fieldDef{
-			{"Separator", func(c Config) string { return c.Separator }, func(c *Config, v string) { c.Separator = v }},
-			{"Dot", func(c Config) string { return c.Dot }, func(c *Config, v string) { c.Dot = v }},
+			{"Separator", func(c config.Config) string { return c.Separator }, func(c *config.Config, v string) { c.Separator = v }},
+			{"Dot", func(c config.Config) string { return c.Dot }, func(c *config.Config, v string) { c.Dot = v }},
 		}
 	case secPrompts:
 		return []fieldDef{
-			{"Max prompts", func(c Config) string { return itoa(c.Prompts.Max) }, func(c *Config, v string) { c.Prompts.Max = atoi(v) }},
-			{"Newest words", func(c Config) string { return itoa(c.Prompts.NewestWords) }, func(c *Config, v string) { c.Prompts.NewestWords = atoi(v) }},
-			{"Older words", func(c Config) string { return itoa(c.Prompts.OlderWords) }, func(c *Config, v string) { c.Prompts.OlderWords = atoi(v) }},
-			{"Cache TTL (s)", func(c Config) string { return itoa(c.Prompts.CacheTTL) }, func(c *Config, v string) { c.Prompts.CacheTTL = atoi(v) }},
+			{"Max prompts", func(c config.Config) string { return itoa(c.Prompts.Max) }, func(c *config.Config, v string) { c.Prompts.Max = atoi(v) }},
+			{"Newest words", func(c config.Config) string { return itoa(c.Prompts.NewestWords) }, func(c *config.Config, v string) { c.Prompts.NewestWords = atoi(v) }},
+			{"Older words", func(c config.Config) string { return itoa(c.Prompts.OlderWords) }, func(c *config.Config, v string) { c.Prompts.OlderWords = atoi(v) }},
+			{"Cache TTL (s)", func(c config.Config) string { return itoa(c.Prompts.CacheTTL) }, func(c *config.Config, v string) { c.Prompts.CacheTTL = atoi(v) }},
 		}
 	case secContext:
 		return []fieldDef{
-			{"Warning %", func(c Config) string { return itoa(c.Context.WarningPct) }, func(c *Config, v string) { c.Context.WarningPct = atoi(v) }},
-			{"Critical %", func(c Config) string { return itoa(c.Context.CriticalPct) }, func(c *Config, v string) { c.Context.CriticalPct = atoi(v) }},
-			{"Alert %", func(c Config) string { return itoa(c.Context.AlertPct) }, func(c *Config, v string) { c.Context.AlertPct = atoi(v) }},
+			{"Warning %", func(c config.Config) string { return itoa(c.Context.WarningPct) }, func(c *config.Config, v string) { c.Context.WarningPct = atoi(v) }},
+			{"Critical %", func(c config.Config) string { return itoa(c.Context.CriticalPct) }, func(c *config.Config, v string) { c.Context.CriticalPct = atoi(v) }},
+			{"Alert %", func(c config.Config) string { return itoa(c.Context.AlertPct) }, func(c *config.Config, v string) { c.Context.AlertPct = atoi(v) }},
 		}
 	case secTokens:
 		return tokenFields()
@@ -145,26 +147,26 @@ func tokenFields() []fieldDef {
 		n := name
 		fields = append(fields, fieldDef{
 			label: n + " style",
-			get: func(c Config) string {
+			get: func(c config.Config) string {
 				if tc := c.Tokens[n]; tc != nil {
 					return tc.Style
 				}
 				return ""
 			},
-			set: func(c *Config, v string) {
+			set: func(c *config.Config, v string) {
 				ensureToken(c, n)
 				c.Tokens[n].Style = v
 			},
 		})
 		fields = append(fields, fieldDef{
 			label: n + " max_length",
-			get: func(c Config) string {
+			get: func(c config.Config) string {
 				if tc := c.Tokens[n]; tc != nil && tc.MaxLength > 0 {
 					return itoa(tc.MaxLength)
 				}
 				return ""
 			},
-			set: func(c *Config, v string) {
+			set: func(c *config.Config, v string) {
 				ensureToken(c, n)
 				c.Tokens[n].MaxLength = atoi(v)
 			},
@@ -173,19 +175,19 @@ func tokenFields() []fieldDef {
 	return fields
 }
 
-func ensureToken(c *Config, name string) {
+func ensureToken(c *config.Config, name string) {
 	if c.Tokens == nil {
-		c.Tokens = make(map[string]*TokenConfig)
+		c.Tokens = make(map[string]*config.TokenConfig)
 	}
 	if c.Tokens[name] == nil {
-		c.Tokens[name] = &TokenConfig{}
+		c.Tokens[name] = &config.TokenConfig{}
 	}
 }
 
 // ─── Model ────────────────────────────────────────────────────────────────
 
 type model struct {
-	cfg        Config
+	cfg        config.Config
 	configPath string
 
 	section section
@@ -198,7 +200,7 @@ type model struct {
 	message string
 }
 
-func newModel(cfg Config, path string) model {
+func newModel(cfg config.Config, path string) model {
 	ti := textinput.New()
 	ti.CharLimit = 120
 	ti.Prompt = "  > "
@@ -298,7 +300,7 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "s", "ctrl+s":
-		if err := saveConfig(m.configPath, m.cfg); err != nil {
+		if err := config.Save(m.configPath, m.cfg); err != nil {
 			m.message = "Error: " + err.Error()
 		} else {
 			m.message = "Saved to " + m.configPath
@@ -306,7 +308,7 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
-		m.cfg = defaultConfig
+		m.cfg = config.DefaultConfig
 		m.message = "Reset to defaults (not saved)"
 		return m, nil
 	}
@@ -414,7 +416,7 @@ var mockTokenData = map[string]struct {
 	"prompts": {"› review work done", clrMuted},
 }
 
-func renderPreview(cfg Config, maxWidth int) string {
+func renderPreview(cfg config.Config, maxWidth int) string {
 	sep := lipgloss.NewStyle().Foreground(clrSeparator).Render(cfg.Separator)
 	dot := lipgloss.NewStyle().Foreground(clrGreen).Render(cfg.Dot)
 

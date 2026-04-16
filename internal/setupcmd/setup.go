@@ -1,4 +1,4 @@
-package main
+package setupcmd
 
 import (
 	"encoding/json"
@@ -13,40 +13,6 @@ const (
 	statusLinePadding = 0
 	binaryName        = "statusline"
 )
-
-func main() {
-	scope := "global"
-	for _, arg := range os.Args[1:] {
-		switch arg {
-		case "--global":
-			scope = "global"
-		case "--local":
-			scope = "local"
-		case "--help", "-h":
-			printUsage()
-			os.Exit(0)
-		default:
-			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", arg)
-			printUsage()
-			os.Exit(1)
-		}
-	}
-
-	if err := runSetup(scope); err != nil {
-		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-}
-
-func printUsage() {
-	fmt.Fprintln(os.Stderr, "Usage: statusline-setup [--global|--local]")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Configures Claude Code's settings.json to use the statusline binary.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "  --global  configure ~/.claude/settings.json (default)")
-	fmt.Fprintln(os.Stderr, "  --local   configure .claude/settings.json in cwd")
-}
 
 // resolveBinaryPath checks ~/go/bin/statusline, then exec.LookPath.
 // Falls back to offerBuildSymlink if neither found.
@@ -240,8 +206,8 @@ func formatCommandWithHome(absPath, home string) string {
 	return absPath
 }
 
-// runSetup orchestrates the setup flow.
-func runSetup(scope string) error {
+// Run orchestrates the setup flow.
+func Run(scope string) error {
 	binaryPath, err := resolveBinaryPath()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Statusline Setup")
@@ -249,7 +215,7 @@ func runSetup(scope string) error {
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "[!] statusline binary not found in ~/go/bin or PATH.")
 		fmt.Fprintln(os.Stderr, "    Build it first:  go build -o ~/go/bin/statusline .")
-		fmt.Fprintf(os.Stderr, "    Then re-run:     go run ./cmd/setup\n")
+		fmt.Fprintf(os.Stderr, "    Then re-run:     statusline setup\n")
 		return fmt.Errorf("binary not found: %w", err)
 	}
 
