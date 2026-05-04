@@ -1,5 +1,6 @@
 # Binaries
 statusline
+slconfig
 
 # Test/build artifacts
 *.test
